@@ -1,113 +1,205 @@
-# MUNICIPIO-TECNO-VALLE
-SISTEMA DE GESTION DE TRANSPORTE
-# Municipio de Tecno Valle - TecnoMovil Data
+// SISTEMA DE GESTIÓN DE TRANSPORTE URBANO EN EL MUNICPIO DE TECNOVALLE
 
-## Procesamiento funcional de datos para un sistema de transporte urbano
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
-Este repositorio contiene la solución de la **EA3 de Programación Orientada a Objetos 2**. La actividad se presenta como una simulación académica del **Municipio de Tecno Valle** y de su problemática en materia de transporte.
+public class SistemaTransporte {
 
-En el ejercicio se tomaron nombres de estaciones conocidas del Metro de Medellín para representar los recorridos.
+    static final class RegistroTransporte {
+        private final int idUsuario;
+        private final String ruta;
+        private final String estacion;
+        private final String accion;
+        private final LocalDateTime timestamp;
 
-> **Nota:** El proyecto no representa datos reales de operación del Metro de Medellín.
+        RegistroTransporte(int idUsuario, String ruta, String estacion,
+                           String accion, LocalDateTime timestamp) {
+            this.idUsuario = idUsuario;
+            this.ruta = ruta;
+            this.estacion = estacion;
+            this.accion = accion;
+            this.timestamp = timestamp;
+        }
 
-## Idea del ejercicio
+        int getIdUsuario() { return idUsuario; }
+        String getRuta() { return ruta; }
+        String getEstacion() { return estacion; }
+        String getAccion() { return accion; }
+        LocalDateTime getTimestamp() { return timestamp; }
+    }
 
-El punto de referencia del ejemplo es la estación **San Antonio**. A partir de ella se simulan recorridos hacia otras estaciones, por ejemplo:
+    // Funcion pura: filtra sin cambiar la lista original.
+    static List<RegistroTransporte> filtrar(
+            List<RegistroTransporte> registros,
+            Predicate<RegistroTransporte> condicion) {
+        return registros.stream().filter(condicion).collect(Collectors.toList());
+    }
 
-- **R2:** San Antonio - San Javier.
-- **R4:** San Antonio - Alpujarra.
-- **R6:** San Antonio - Parque Berrío.
-- **R8:** San Antonio - Industriales.
+    // Funcion de orden superior: recibe una funcion para transformar datos.
+    static <T> List<T> transformar(
+            List<RegistroTransporte> registros,
+            Function<RegistroTransporte, T> funcion) {
+        return registros.stream().map(funcion).collect(Collectors.toList());
+    }
 
-También se presentan registros de San Javier, Alpujarra, Parque Berrío y Poblado como puntos de entrada o salida para mostrar que un usuario puede iniciar o terminar su recorrido en diferentes estaciones.
+    static Map<String, Long> afluenciaPorEstacion(List<RegistroTransporte> registros) {
+        return filtrar(registros, r -> r.getAccion().equals("entrada"))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        RegistroTransporte::getEstacion,
+                        Collectors.counting()));
+    }
 
-## Qué hace el programa
+    static Map<Integer, Long> horasPico(List<RegistroTransporte> registros) {
+        return filtrar(registros, r -> r.getAccion().equals("entrada"))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        r -> r.getTimestamp().getHour(),
+                        Collectors.counting()));
+    }
 
-El código procesa una lista de registros y realiza las seis tareas solicitadas en el caso de estudio:
+    static Map<String, Long> rutasMasUtilizadas(List<RegistroTransporte> registros) {
+        return filtrar(registros, r -> r.getAccion().equals("entrada"))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        RegistroTransporte::getRuta,
+                        Collectors.counting()));
+    }
 
-1. Clasifica la ruta crítica como regla del límite del umbral de 4 entradas, con lo cual alerta como crítica.
-2. Detecta las 4 entradas de rutas críticas con este umbral simulado.
-3. Calcula la afluencia por estación y agrupa entradas por hora para identificar los momentos de mayor flujo.
-4. Cuenta las rutas más usadas.
-5. Organiza las estaciones visitadas por cada usuario.
-6. Calcula el promedio de tiempo entre registros consecutivos de usuarios.
+    static Map<Integer, List<String>> patronesPorUsuario(
+            List<RegistroTransporte> registros) {
+        return registros.stream()
+                .sorted(Comparator.comparing(RegistroTransporte::getTimestamp))
+                .collect(Collectors.groupingBy(
+                        RegistroTransporte::getIdUsuario,
+                        Collectors.mapping(
+                                RegistroTransporte::getEstacion,
+                                Collectors.toList())));
+    }
 
-## Programación funcional utilizada
+    static double tiempoPromedioEntreEstaciones(
+            List<RegistroTransporte> registros) {
+        Map<Integer, List<RegistroTransporte>> porUsuario = registros.stream()
+                .sorted(Comparator.comparing(RegistroTransporte::getTimestamp))
+                .collect(Collectors.groupingBy(RegistroTransporte::getIdUsuario));
 
-### Funciones puras
+        List<Long> minutos = porUsuario.values().stream()
+                .flatMap(lista -> {
+                    List<RegistroTransporte> ordenada = lista.stream()
+                            .sorted(Comparator.comparing(
+                                    RegistroTransporte::getTimestamp))
+                            .collect(Collectors.toList());
 
-Los métodos de filtrado y análisis reciben datos y entregan un resultado sin modificar las listas originales.
+                    return java.util.stream.IntStream.range(1, ordenada.size())
+                            .mapToObj(i -> Duration.between(
+                                    ordenada.get(i - 1).getTimestamp(),
+                                    ordenada.get(i).getTimestamp()).toMinutes());
+                })
+                .collect(Collectors.toList());
 
-### Inmutabilidad
+        return minutos.stream().mapToLong(Long::longValue).average().orElse(0.0);
+    }
 
-`RegistroTransporte` utiliza atributos `final` y la colección principal se construye con `List.of`, es decir, no se modifica durante los análisis.
+    static Map<String, String> detectarRutasCriticas(
+            List<RegistroTransporte> registros, long umbral) {
+        return rutasMasUtilizadas(registros).entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> e.getValue() >= umbral ? "critica" : "normal"));
+    }
 
-### Lambdas
+    public static void main(String[] args) {
+        // Escenario simulado del Municipio de Tecno Valle.
+        // Los identificadores y codigos de ruta se mantienen en pares.
+        final List<RegistroTransporte> registros = List.of(
+                new RegistroTransporte(202, "R2", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 6, 20)),
+                new RegistroTransporte(202, "R2", "San Javier", "salida", LocalDateTime.of(2026, 9, 20, 6, 40)),
+                new RegistroTransporte(204, "R4", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 6, 40)),
+                new RegistroTransporte(204, "R4", "Alpujarra", "salida", LocalDateTime.of(2026, 9, 20, 7, 0)),
+                new RegistroTransporte(206, "R6", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 7, 20)),
+                new RegistroTransporte(206, "R6", "Parque Berrío", "salida", LocalDateTime.of(2026, 9, 20, 7, 40)),
+                new RegistroTransporte(208, "R8", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 8, 0)),
+                new RegistroTransporte(208, "R8", "Industriales", "salida", LocalDateTime.of(2026, 9, 20, 8, 20)),
+                new RegistroTransporte(210, "R2", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 8, 20)),
+                new RegistroTransporte(210, "R2", "San Javier", "salida", LocalDateTime.of(2026, 9, 20, 8, 40)),
+                new RegistroTransporte(212, "R4", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 8, 40)),
+                new RegistroTransporte(212, "R4", "Alpujarra", "salida", LocalDateTime.of(2026, 9, 20, 9, 0)),
+                new RegistroTransporte(214, "R6", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 9, 0)),
+                new RegistroTransporte(214, "R6", "Parque Berrío", "salida", LocalDateTime.of(2026, 9, 20, 9, 20)),
+                new RegistroTransporte(216, "R8", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 9, 20)),
+                new RegistroTransporte(216, "R8", "Industriales", "salida", LocalDateTime.of(2026, 9, 20, 9, 40)),
+                new RegistroTransporte(218, "R2", "San Javier", "entrada", LocalDateTime.of(2026, 9, 20, 10, 0)),
+                new RegistroTransporte(218, "R2", "San Antonio", "salida", LocalDateTime.of(2026, 9, 20, 10, 20)),
+                new RegistroTransporte(220, "R4", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 10, 20)),
+                new RegistroTransporte(220, "R4", "Alpujarra", "salida", LocalDateTime.of(2026, 9, 20, 10, 40)),
+                new RegistroTransporte(222, "R6", "San Antonio", "entrada", LocalDateTime.of(2026, 9, 20, 11, 0)),
+                new RegistroTransporte(222, "R6", "Parque Berrío", "salida", LocalDateTime.of(2026, 9, 20, 11, 20)),
+                new RegistroTransporte(224, "R2", "Poblado", "entrada", LocalDateTime.of(2026, 9, 20, 12, 0)),
+                new RegistroTransporte(224, "R2", "San Antonio", "salida", LocalDateTime.of(2026, 9, 20, 12, 20)),
+                new RegistroTransporte(226, "R4", "Alpujarra", "entrada", LocalDateTime.of(2026, 9, 20, 7, 40)),
+                new RegistroTransporte(226, "R4", "San Antonio", "salida", LocalDateTime.of(2026, 9, 20, 8, 0)),
+                new RegistroTransporte(228, "R6", "Parque Berrío", "entrada", LocalDateTime.of(2026, 9, 20, 11, 20)),
+                new RegistroTransporte(228, "R6", "San Antonio", "salida", LocalDateTime.of(2026, 9, 20, 11, 40))
+        );
 
-Se utilizan expresiones lambda para indicar la condición que se debe aplicar:
+        System.out.println("RESULTADOS - MUNICIPIO DE TECNO VALLE");
+        System.out.println();
 
-```java
-r -> r.getAccion().equals("entrada")
-```
+        System.out.println("1. Afluencia por estacion");
+        afluenciaPorEstacion(registros).entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> System.out.println(e.getKey() + ": "
+                        + e.getValue() + " entradas"));
 
-### Streams
+        System.out.println();
+        System.out.println("2. Registros por hora");
+        horasPico(registros).entrySet().stream()
+                .sorted(Map.Entry.<Integer, Long>comparingByValue().reversed())
+                .forEach(e -> System.out.println(e.getKey() + ":00 = "
+                        + e.getValue() + " entradas"));
 
-Los `Streams` permiten filtrar, ordenar, agrupar y transformar los registros de forma declarativa.
+        System.out.println();
+        System.out.println("3. Rutas mas utilizadas");
+        rutasMasUtilizadas(registros).entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .forEach(e -> System.out.println(e.getKey() + ": "
+                        + e.getValue() + " entradas"));
 
-### Funciones de orden superior
+        System.out.println();
+        System.out.println("4. Patrones de viaje por usuario");
+        patronesPorUsuario(registros).entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> System.out.println("Usuario " + e.getKey()
+                        + ": " + e.getValue()));
 
-Una función puede recibir otra función como parámetro.
+        System.out.println();
+        System.out.println("5. Tiempo promedio entre estaciones");
+        System.out.printf("%.2f minutos%n", tiempoPromedioEntreEstaciones(registros));
 
-- `filtrar` recibe un `Predicate`.
-- `transformar` recibe un `Function`.
+        System.out.println();
+        System.out.println("6. Estado de las rutas");
+        detectarRutasCriticas(registros, 4).entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> System.out.println(e.getKey()
+                        + ": " + e.getValue()));
 
-### Composición
+        // Composicion: una funcion obtiene la estacion y otra la pasa a mayusculas.
+        Function<RegistroTransporte, String> obtenerEstacion =
+                RegistroTransporte::getEstacion;
+        Function<String, String> pasarAMayusculas =
+                texto -> texto.toUpperCase();
+        Function<RegistroTransporte, String> estacionNormalizada =
+                obtenerEstacion.andThen(pasarAMayusculas);
 
-`andThen` se utiliza al final del programa. Primero se obtiene la estación y después se convierte el texto a mayúsculas. Esta es la última acción en la ejecución de sentencias.
+        System.out.println();
+        System.out.println("Ejemplo de composicion: "
+                + transformar(registros, estacionNormalizada).get(0));
+    }
+}
 
-## Cómo ejecutar
-
-El programa puede ejecutarse utilizando Java Online, Visual Studio Code o un entorno con **JDK 8 o superior**. No se utilizan frameworks externos.
-
-### Compilar
-
-```bash
-javac SistemaTransporte.java
-```
-
-### Ejecutar
-
-```bash
-java SistemaTransporte
-```
-
-## Resultado de la prueba
-
-El tiempo promedio de los registros simulados es de **20.00 minutos**.
-
-La ejecución del programa fue validada en Java Online, Visual Studio Code, `javac` y `java`.
-
-El programa genera los siguientes resultados de salida:
-
-- Afluencia por estación.
-- Registros por hora.
-- Rutas más utilizadas.
-- Patrones de viaje por usuario.
-- Tiempo promedio.
-- Estado de las rutas.
-
-## Estructura del repositorio
-
-```text
-Municipio-Tecno-Valle/
-──README.md
-─ SistemaTransporte.java
-```
-
-La solución se mantiene en la rama principal `main`.
-
-## Comandos para subir la solución
-
-```bash
-git push -u origin main
-```
